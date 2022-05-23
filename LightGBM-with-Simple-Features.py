@@ -3,15 +3,17 @@ import pandas as pd
 import gc
 import time
 from contextlib import contextmanager
-from lightgbm import LGBMClassifier
+from lightgbm import LGBMClassifier, early_stopping
 from sklearn.metrics import roc_auc_score, roc_curve
 from sklearn.model_selection import KFold, StratifiedKFold
 import matplotlib.pyplot as plt
 import seaborn as sns
+import re
 import warnings
+import lightgbm as lgb
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
-dir_ref = "./data"
+dir_ref = "./csv-data"
 
 
 @contextmanager
@@ -270,10 +272,7 @@ def kfold_lightgbm(df, num_folds, stratified=False, debug=False):
     # Divide in training/validation and test data
     train_df = df[df['TARGET'].notnull()]
     test_df = df[df['TARGET'].isnull()]
-    print(
-        "Starting LightGBM. Train shape: {}, test shape: {}".format(
-            train_df.shape,
-            test_df.shape))
+    print(f"Starting LightGBM. Train shape: {train_df.shape}, test shape: {test_df.shape}")
     del df
     gc.collect()
     # Cross validation model
@@ -314,26 +313,16 @@ def kfold_lightgbm(df, num_folds, stratified=False, debug=False):
             reg_lambda=0.0735294,
             min_split_gain=0.0222415,
             min_child_weight=39.3259775,
-            silent=-1,
+            # silent=-1,
             verbose=-1, )
 
-        clf.fit(
-            train_x,
-            train_y,
-            eval_set=[
-                (train_x,
-                 train_y),
-                (valid_x,
-                 valid_y)],
-            eval_metric='auc',
-            verbose=200,
-            early_stopping_rounds=200)
+        clf.fit(train_x, train_y, eval_set=[(train_x, train_y), (valid_x, valid_y)],
+                eval_metric='auc', callbacks=[early_stopping(stopping_rounds=200), lgb.log_evaluation(200)])
 
         oof_preds[valid_idx] = clf.predict_proba(
             valid_x, num_iteration=clf.best_iteration_)[:, 1]
         sub_preds += clf.predict_proba(test_df[feats],
-                                       num_iteration=clf.best_iteration_)[:,
-                                                                          1] / folds.n_splits
+                                       num_iteration=clf.best_iteration_)[:,1] / folds.n_splits
 
         fold_importance_df = pd.DataFrame()
         fold_importance_df["feature"] = feats
@@ -341,13 +330,7 @@ def kfold_lightgbm(df, num_folds, stratified=False, debug=False):
         fold_importance_df["fold"] = n_fold + 1
         feature_importance_df = pd.concat(
             [feature_importance_df, fold_importance_df], axis=0)
-        print(
-            'Fold %2d AUC : %.6f' %
-            (n_fold +
-             1,
-             roc_auc_score(
-                 valid_y,
-                 oof_preds[valid_idx])))
+        print('Fold %2d AUC : %.6f' % (n_fold + 1, roc_auc_score(valid_y, oof_preds[valid_idx])))
         del clf, train_x, train_y, valid_x, valid_y
         gc.collect()
 
@@ -355,8 +338,7 @@ def kfold_lightgbm(df, num_folds, stratified=False, debug=False):
     # Write submission file and plot feature importance
     if not debug:
         test_df['TARGET'] = sub_preds
-        test_df[['SK_ID_CURR', 'TARGET']].to_csv(
-            submission_file_name, index=False)
+        test_df[['SK_ID_CURR', 'TARGET']].to_csv(submission_file_name, index=False)
     display_importances(feature_importance_df)
     return feature_importance_df
 
@@ -413,6 +395,8 @@ def main(debug=False):
         df = df.join(cc, how='left', on='SK_ID_CURR')
         del cc
         gc.collect()
+
+    df = df.rename(columns=lambda x: re.sub('[^A-Za-z0-9_]+', '', x))
     with timer("Run LightGBM with kfold"):
         feat_importance = kfold_lightgbm(
             df, num_folds=10, stratified=False, debug=debug)
