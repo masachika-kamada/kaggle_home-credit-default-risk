@@ -1,251 +1,24 @@
 import numpy as np
 import pandas as pd
 import gc
-from lightgbm import LGBMClassifier, early_stopping
-from sklearn.metrics import roc_auc_score, roc_curve
-from sklearn.model_selection import KFold, StratifiedKFold
-import matplotlib.pyplot as plt
-import seaborn as sns
-import re
 import warnings
-import lightgbm as lgb
 warnings.simplefilter(action='ignore', category=FutureWarning)
-
 from lib.utils import timer, one_hot_encoder
 from lib.create_data import application_train_test, bureau_and_balance
 
 dir_ref = "./csv-data"
 
 
-# Preprocess previous_applications.csv
-def previous_applications(num_rows=None, nan_as_category=True):
-    prev = pd.read_csv(dir_ref + '/previous_application.csv', nrows=num_rows)
-    prev, cat_cols = one_hot_encoder(prev, nan_as_category=True)
-    # Days 365.243 values -> nan
-    prev['DAYS_FIRST_DRAWING'].replace(365243, np.nan, inplace=True)
-    prev['DAYS_FIRST_DUE'].replace(365243, np.nan, inplace=True)
-    prev['DAYS_LAST_DUE_1ST_VERSION'].replace(365243, np.nan, inplace=True)
-    prev['DAYS_LAST_DUE'].replace(365243, np.nan, inplace=True)
-    prev['DAYS_TERMINATION'].replace(365243, np.nan, inplace=True)
-    # Add feature: value ask / value received percentage
-    prev['APP_CREDIT_PERC'] = prev['AMT_APPLICATION'] / prev['AMT_CREDIT']
-    # Previous applications numeric features
-    num_aggregations = {
-        'AMT_ANNUITY': ['min', 'max', 'mean'],
-        'AMT_APPLICATION': ['min', 'max', 'mean'],
-        'AMT_CREDIT': ['min', 'max', 'mean'],
-        'APP_CREDIT_PERC': ['min', 'max', 'mean', 'var'],
-        'AMT_DOWN_PAYMENT': ['min', 'max', 'mean'],
-        'AMT_GOODS_PRICE': ['min', 'max', 'mean'],
-        'HOUR_APPR_PROCESS_START': ['min', 'max', 'mean'],
-        'RATE_DOWN_PAYMENT': ['min', 'max', 'mean'],
-        'DAYS_DECISION': ['min', 'max', 'mean'],
-        'CNT_PAYMENT': ['mean', 'sum'],
-    }
-    # Previous applications categorical features
-    cat_aggregations = {}
-    for cat in cat_cols:
-        cat_aggregations[cat] = ['mean']
-
-    prev_agg = prev.groupby('SK_ID_CURR').agg(
-        {**num_aggregations, **cat_aggregations})
-    prev_agg.columns = pd.Index(
-        ['PREV_' + e[0] + "_" + e[1].upper() for e in prev_agg.columns.tolist()])
-    # Previous Applications: Approved Applications - only numerical features
-    approved = prev[prev['NAME_CONTRACT_STATUS_Approved'] == 1]
-    approved_agg = approved.groupby('SK_ID_CURR').agg(num_aggregations)
-    approved_agg.columns = pd.Index(
-        ['APPROVED_' + e[0] + "_" + e[1].upper() for e in approved_agg.columns.tolist()])
-    prev_agg = prev_agg.join(approved_agg, how='left', on='SK_ID_CURR')
-    # Previous Applications: Refused Applications - only numerical features
-    refused = prev[prev['NAME_CONTRACT_STATUS_Refused'] == 1]
-    refused_agg = refused.groupby('SK_ID_CURR').agg(num_aggregations)
-    refused_agg.columns = pd.Index(
-        ['REFUSED_' + e[0] + "_" + e[1].upper() for e in refused_agg.columns.tolist()])
-    prev_agg = prev_agg.join(refused_agg, how='left', on='SK_ID_CURR')
-    del refused, refused_agg, approved, approved_agg, prev
-    gc.collect()
-    return prev_agg
-
-# Preprocess POS_CASH_balance.csv
-def pos_cash(num_rows=None, nan_as_category=True):
-    pos = pd.read_csv(dir_ref + '/POS_CASH_balance.csv', nrows=num_rows)
-    pos, cat_cols = one_hot_encoder(pos, nan_as_category=True)
-    # Features
-    aggregations = {
-        'MONTHS_BALANCE': ['max', 'mean', 'size'],
-        'SK_DPD': ['max', 'mean'],
-        'SK_DPD_DEF': ['max', 'mean']
-    }
-    for cat in cat_cols:
-        aggregations[cat] = ['mean']
-
-    pos_agg = pos.groupby('SK_ID_CURR').agg(aggregations)
-    pos_agg.columns = pd.Index(
-        ['POS_' + e[0] + "_" + e[1].upper() for e in pos_agg.columns.tolist()])
-    # Count pos cash accounts
-    pos_agg['POS_COUNT'] = pos.groupby('SK_ID_CURR').size()
-    del pos
-    gc.collect()
-    return pos_agg
-
-# Preprocess installments_payments.csv
-def installments_payments(num_rows=None, nan_as_category=True):
-    ins = pd.read_csv(dir_ref + '/installments_payments.csv', nrows=num_rows)
-    ins, cat_cols = one_hot_encoder(ins, nan_as_category=True)
-    # Percentage and difference paid in each installment (amount paid and
-    # installment value)
-    ins['PAYMENT_PERC'] = ins['AMT_PAYMENT'] / ins['AMT_INSTALMENT']
-    ins['PAYMENT_DIFF'] = ins['AMT_INSTALMENT'] - ins['AMT_PAYMENT']
-    # Days past due and days before due (no negative values)
-    ins['DPD'] = ins['DAYS_ENTRY_PAYMENT'] - ins['DAYS_INSTALMENT']
-    ins['DBD'] = ins['DAYS_INSTALMENT'] - ins['DAYS_ENTRY_PAYMENT']
-    ins['DPD'] = ins['DPD'].apply(lambda x: x if x > 0 else 0)
-    ins['DBD'] = ins['DBD'].apply(lambda x: x if x > 0 else 0)
-    # Features: Perform aggregations
-    aggregations = {
-        'NUM_INSTALMENT_VERSION': ['nunique'],
-        'DPD': ['max', 'mean', 'sum'],
-        'DBD': ['max', 'mean', 'sum'],
-        'PAYMENT_PERC': ['max', 'mean', 'sum', 'var'],
-        'PAYMENT_DIFF': ['max', 'mean', 'sum', 'var'],
-        'AMT_INSTALMENT': ['max', 'mean', 'sum'],
-        'AMT_PAYMENT': ['min', 'max', 'mean', 'sum'],
-        'DAYS_ENTRY_PAYMENT': ['max', 'mean', 'sum']
-    }
-    for cat in cat_cols:
-        aggregations[cat] = ['mean']
-    ins_agg = ins.groupby('SK_ID_CURR').agg(aggregations)
-    ins_agg.columns = pd.Index(
-        ['INSTAL_' + e[0] + "_" + e[1].upper() for e in ins_agg.columns.tolist()])
-    # Count installments accounts
-    ins_agg['INSTAL_COUNT'] = ins.groupby('SK_ID_CURR').size()
-    del ins
-    gc.collect()
-    return ins_agg
-
-# Preprocess credit_card_balance.csv
-def credit_card_balance(num_rows=None, nan_as_category=True):
-    cc = pd.read_csv(dir_ref + '/credit_card_balance.csv', nrows=num_rows)
-    cc, cat_cols = one_hot_encoder(cc, nan_as_category=True)
-    # General aggregations
-    cc.drop(['SK_ID_PREV'], axis=1, inplace=True)
-    cc_agg = cc.groupby('SK_ID_CURR').agg(['min', 'max', 'mean', 'sum', 'var'])
-    cc_agg.columns = pd.Index(['CC_' + e[0] + "_" + e[1].upper()
-                              for e in cc_agg.columns.tolist()])
-    # Count credit card lines
-    cc_agg['CC_COUNT'] = cc.groupby('SK_ID_CURR').size()
-    del cc
-    gc.collect()
-    return cc_agg
-
-# LightGBM GBDT with KFold or Stratified KFold
-# Parameters from Tilii kernel:
-# https://www.kaggle.com/tilii7/olivier-lightgbm-parameters-by-bayesian-opt/code
-
-
-def kfold_lightgbm(df, num_folds, stratified=False, debug=False):
-    # Divide in training/validation and test data
-    train_df = df[df['TARGET'].notnull()]
-    test_df = df[df['TARGET'].isnull()]
-    print(f"Starting LightGBM. Train shape: {train_df.shape}, test shape: {test_df.shape}")
-    del df
-    gc.collect()
-    # Cross validation model
-    if stratified:
-        folds = StratifiedKFold(
-            n_splits=num_folds,
-            shuffle=True,
-            random_state=1001)
-    else:
-        folds = KFold(n_splits=num_folds, shuffle=True, random_state=1001)
-    # Create arrays and dataframes to store results
-    oof_preds = np.zeros(train_df.shape[0])
-    sub_preds = np.zeros(test_df.shape[0])
-    feature_importance_df = pd.DataFrame()
-    feats = [
-        f for f in train_df.columns if f not in [
-            'TARGET',
-            'SK_ID_CURR',
-            'SK_ID_BUREAU',
-            'SK_ID_PREV',
-            'index']]
-
-    for n_fold, (train_idx, valid_idx) in enumerate(
-            folds.split(train_df[feats], train_df['TARGET'])):
-        train_x, train_y = train_df[feats].iloc[train_idx], train_df['TARGET'].iloc[train_idx]
-        valid_x, valid_y = train_df[feats].iloc[valid_idx], train_df['TARGET'].iloc[valid_idx]
-
-        # LightGBM parameters found by Bayesian optimization
-        clf = LGBMClassifier(
-            nthread=4,
-            n_estimators=10000,
-            learning_rate=0.02,
-            num_leaves=34,
-            colsample_bytree=0.9497036,
-            subsample=0.8715623,
-            max_depth=8,
-            reg_alpha=0.041545473,
-            reg_lambda=0.0735294,
-            min_split_gain=0.0222415,
-            min_child_weight=39.3259775,
-            # silent=-1,
-            verbose=-1, )
-
-        clf.fit(train_x, train_y, eval_set=[(train_x, train_y), (valid_x, valid_y)],
-                eval_metric='auc', callbacks=[early_stopping(stopping_rounds=200), lgb.log_evaluation(200)])
-
-        oof_preds[valid_idx] = clf.predict_proba(
-            valid_x, num_iteration=clf.best_iteration_)[:, 1]
-        sub_preds += clf.predict_proba(test_df[feats],
-                                       num_iteration=clf.best_iteration_)[:,1] / folds.n_splits
-
-        fold_importance_df = pd.DataFrame()
-        fold_importance_df["feature"] = feats
-        fold_importance_df["importance"] = clf.feature_importances_
-        fold_importance_df["fold"] = n_fold + 1
-        feature_importance_df = pd.concat(
-            [feature_importance_df, fold_importance_df], axis=0)
-        print('Fold %2d AUC : %.6f' % (n_fold + 1, roc_auc_score(valid_y, oof_preds[valid_idx])))
-        del clf, train_x, train_y, valid_x, valid_y
-        gc.collect()
-
-    print('Full AUC score %.6f' % roc_auc_score(train_df['TARGET'], oof_preds))
-    # Write submission file and plot feature importance
-    if not debug:
-        test_df['TARGET'] = sub_preds
-        test_df[['SK_ID_CURR', 'TARGET']].to_csv(submission_file_name, index=False)
-    display_importances(feature_importance_df)
-    return feature_importance_df
-
-# Display/plot feature importance
-def display_importances(feature_importance_df_):
-    cols = feature_importance_df_[["feature", "importance"]].groupby(
-        "feature").mean().sort_values(by="importance", ascending=False)[:40].index
-    best_features = feature_importance_df_.loc[feature_importance_df_.feature.isin(
-        cols)]
-    plt.figure(figsize=(8, 10))
-    sns.barplot(
-        x="importance",
-        y="feature",
-        data=best_features.sort_values(
-            by="importance",
-            ascending=False))
-    plt.title('LightGBM Features (avg over folds)')
-    plt.tight_layout()
-    plt.savefig('lgbm_importances01.png')
-
-
 def main(debug=False):
     num_rows = 10000 if debug else None
-    df = application_train_test(num_rows)
+    # df = application_train_test(num_rows)
 
     with timer("Process bureau and bureau_balance"):
         bureau = bureau_and_balance(num_rows)
-        print("Bureau df shape:", bureau.shape)
-        df = df.join(bureau, how='left', on='SK_ID_CURR')
-        del bureau
-        gc.collect()
+        # print("Bureau df shape:", bureau.shape)
+        # df = df.join(bureau, how='left', on='SK_ID_CURR')
+        # del bureau
+        # gc.collect()
     # with timer("Process previous_applications"):
     #     prev = previous_applications(num_rows)
     #     print("Previous applications df shape:", prev.shape)
@@ -271,7 +44,6 @@ def main(debug=False):
     #     del cc
     #     gc.collect()
 
-    # df = df.rename(columns=lambda x: re.sub('[^A-Za-z0-9_]+', '', x))
     # with timer("Run LightGBM with kfold"):
     #     feat_importance = kfold_lightgbm(
     #         df, num_folds=10, stratified=False, debug=debug)
