@@ -1,8 +1,6 @@
 import numpy as np
 import pandas as pd
 import gc
-import time
-from contextlib import contextmanager
 from lightgbm import LGBMClassifier, early_stopping
 from sklearn.metrics import roc_auc_score, roc_curve
 from sklearn.model_selection import KFold, StratifiedKFold
@@ -13,62 +11,13 @@ import warnings
 import lightgbm as lgb
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
+from lib.utils import timer, one_hot_encoder
+from lib.create_data import application_train_test
+
 dir_ref = "./csv-data"
 
 
-@contextmanager
-def timer(title):
-    t0 = time.time()
-    yield
-    print("{} - done in {:.0f}s".format(title, time.time() - t0))
-
-# One-hot encoding for categorical columns with get_dummies
-
-
-def one_hot_encoder(df, nan_as_category=True):
-    original_columns = list(df.columns)
-    categorical_columns = [
-        col for col in df.columns if df[col].dtype == 'object']
-    df = pd.get_dummies(
-        df,
-        columns=categorical_columns,
-        dummy_na=nan_as_category)
-    new_columns = [c for c in df.columns if c not in original_columns]
-    return df, new_columns
-
-# Preprocess application_train.csv and application_test.csv
-
-
-def application_train_test(num_rows=None, nan_as_category=False):
-    # Read data and merge
-    df = pd.read_csv(dir_ref + '/application_train.csv', nrows=num_rows)
-    test_df = pd.read_csv(dir_ref + '/application_test.csv', nrows=num_rows)
-    print("Train samples: {}, test samples: {}".format(len(df), len(test_df)))
-    df = df.append(test_df).reset_index()
-    # Optional: Remove 4 applications with XNA CODE_GENDER (train set)
-    df = df[df['CODE_GENDER'] != 'XNA']
-
-    # Categorical features with Binary encode (0 or 1; two categories)
-    for bin_feature in ['CODE_GENDER', 'FLAG_OWN_CAR', 'FLAG_OWN_REALTY']:
-        df[bin_feature], uniques = pd.factorize(df[bin_feature])
-    # Categorical features with One-Hot encode
-    df, cat_cols = one_hot_encoder(df, nan_as_category)
-
-    # NaN values for DAYS_EMPLOYED: 365.243 -> nan
-    df['DAYS_EMPLOYED'].replace(365243, np.nan, inplace=True)
-    # Some simple new features (percentages)
-    df['DAYS_EMPLOYED_PERC'] = df['DAYS_EMPLOYED'] / df['DAYS_BIRTH']
-    df['INCOME_CREDIT_PERC'] = df['AMT_INCOME_TOTAL'] / df['AMT_CREDIT']
-    df['INCOME_PER_PERSON'] = df['AMT_INCOME_TOTAL'] / df['CNT_FAM_MEMBERS']
-    df['ANNUITY_INCOME_PERC'] = df['AMT_ANNUITY'] / df['AMT_INCOME_TOTAL']
-    df['PAYMENT_RATE'] = df['AMT_ANNUITY'] / df['AMT_CREDIT']
-    del test_df
-    gc.collect()
-    return df
-
 # Preprocess bureau.csv and bureau_balance.csv
-
-
 def bureau_and_balance(num_rows=None, nan_as_category=True):
     bureau = pd.read_csv(dir_ref + '/bureau.csv', nrows=num_rows)
     bb = pd.read_csv(dir_ref + '/bureau_balance.csv', nrows=num_rows)
@@ -134,8 +83,6 @@ def bureau_and_balance(num_rows=None, nan_as_category=True):
     return bureau_agg
 
 # Preprocess previous_applications.csv
-
-
 def previous_applications(num_rows=None, nan_as_category=True):
     prev = pd.read_csv(dir_ref + '/previous_application.csv', nrows=num_rows)
     prev, cat_cols = one_hot_encoder(prev, nan_as_category=True)
@@ -186,8 +133,6 @@ def previous_applications(num_rows=None, nan_as_category=True):
     return prev_agg
 
 # Preprocess POS_CASH_balance.csv
-
-
 def pos_cash(num_rows=None, nan_as_category=True):
     pos = pd.read_csv(dir_ref + '/POS_CASH_balance.csv', nrows=num_rows)
     pos, cat_cols = one_hot_encoder(pos, nan_as_category=True)
@@ -210,8 +155,6 @@ def pos_cash(num_rows=None, nan_as_category=True):
     return pos_agg
 
 # Preprocess installments_payments.csv
-
-
 def installments_payments(num_rows=None, nan_as_category=True):
     ins = pd.read_csv(dir_ref + '/installments_payments.csv', nrows=num_rows)
     ins, cat_cols = one_hot_encoder(ins, nan_as_category=True)
@@ -247,8 +190,6 @@ def installments_payments(num_rows=None, nan_as_category=True):
     return ins_agg
 
 # Preprocess credit_card_balance.csv
-
-
 def credit_card_balance(num_rows=None, nan_as_category=True):
     cc = pd.read_csv(dir_ref + '/credit_card_balance.csv', nrows=num_rows)
     cc, cat_cols = one_hot_encoder(cc, nan_as_category=True)
@@ -343,8 +284,6 @@ def kfold_lightgbm(df, num_folds, stratified=False, debug=False):
     return feature_importance_df
 
 # Display/plot feature importance
-
-
 def display_importances(feature_importance_df_):
     cols = feature_importance_df_[["feature", "importance"]].groupby(
         "feature").mean().sort_values(by="importance", ascending=False)[:40].index
@@ -365,44 +304,44 @@ def display_importances(feature_importance_df_):
 def main(debug=False):
     num_rows = 10000 if debug else None
     df = application_train_test(num_rows)
-    with timer("Process bureau and bureau_balance"):
-        bureau = bureau_and_balance(num_rows)
-        print("Bureau df shape:", bureau.shape)
-        df = df.join(bureau, how='left', on='SK_ID_CURR')
-        del bureau
-        gc.collect()
-    with timer("Process previous_applications"):
-        prev = previous_applications(num_rows)
-        print("Previous applications df shape:", prev.shape)
-        df = df.join(prev, how='left', on='SK_ID_CURR')
-        del prev
-        gc.collect()
-    with timer("Process POS-CASH balance"):
-        pos = pos_cash(num_rows)
-        print("Pos-cash balance df shape:", pos.shape)
-        df = df.join(pos, how='left', on='SK_ID_CURR')
-        del pos
-        gc.collect()
-    with timer("Process installments payments"):
-        ins = installments_payments(num_rows)
-        print("Installments payments df shape:", ins.shape)
-        df = df.join(ins, how='left', on='SK_ID_CURR')
-        del ins
-        gc.collect()
-    with timer("Process credit card balance"):
-        cc = credit_card_balance(num_rows)
-        print("Credit card balance df shape:", cc.shape)
-        df = df.join(cc, how='left', on='SK_ID_CURR')
-        del cc
-        gc.collect()
+    # with timer("Process bureau and bureau_balance"):
+    #     bureau = bureau_and_balance(num_rows)
+    #     print("Bureau df shape:", bureau.shape)
+    #     df = df.join(bureau, how='left', on='SK_ID_CURR')
+    #     del bureau
+    #     gc.collect()
+    # with timer("Process previous_applications"):
+    #     prev = previous_applications(num_rows)
+    #     print("Previous applications df shape:", prev.shape)
+    #     df = df.join(prev, how='left', on='SK_ID_CURR')
+    #     del prev
+    #     gc.collect()
+    # with timer("Process POS-CASH balance"):
+    #     pos = pos_cash(num_rows)
+    #     print("Pos-cash balance df shape:", pos.shape)
+    #     df = df.join(pos, how='left', on='SK_ID_CURR')
+    #     del pos
+    #     gc.collect()
+    # with timer("Process installments payments"):
+    #     ins = installments_payments(num_rows)
+    #     print("Installments payments df shape:", ins.shape)
+    #     df = df.join(ins, how='left', on='SK_ID_CURR')
+    #     del ins
+    #     gc.collect()
+    # with timer("Process credit card balance"):
+    #     cc = credit_card_balance(num_rows)
+    #     print("Credit card balance df shape:", cc.shape)
+    #     df = df.join(cc, how='left', on='SK_ID_CURR')
+    #     del cc
+    #     gc.collect()
 
-    df = df.rename(columns=lambda x: re.sub('[^A-Za-z0-9_]+', '', x))
-    with timer("Run LightGBM with kfold"):
-        feat_importance = kfold_lightgbm(
-            df, num_folds=10, stratified=False, debug=debug)
+    # df = df.rename(columns=lambda x: re.sub('[^A-Za-z0-9_]+', '', x))
+    # with timer("Run LightGBM with kfold"):
+    #     feat_importance = kfold_lightgbm(
+    #         df, num_folds=10, stratified=False, debug=debug)
 
 
 if __name__ == "__main__":
-    submission_file_name = "submission_kernel02.csv"
+    submission_file_name = "submission.csv"
     with timer("Full model run"):
         main()

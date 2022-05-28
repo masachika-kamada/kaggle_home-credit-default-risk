@@ -1,2 +1,3 @@
 *.csv
 ML*
+__pycache__/
