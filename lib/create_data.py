@@ -66,7 +66,9 @@ def bureau_and_balance(num_rows=None, nan_as_category=True):
     bb, bb_cat = one_hot_encoder(bb, nan_as_category)
     bureau, bureau_cat = one_hot_encoder(bureau, nan_as_category)
 
-    """bureauに関するデータを結合する"""
+    """bureauに関するデータを結合する
+    - 数値はmin, maxなど個別に適した処理を指定するが、質的変数はmeanのみ指定する
+    - bb_aggとbureau_aggに変換結果を保存して最後に結合"""
     bb_aggregations = {'MONTHS_BALANCE': ['min', 'max', 'size']}
     for col in bb_cat:
         bb_aggregations[col] = ['mean']
@@ -92,7 +94,7 @@ def bureau_and_balance(num_rows=None, nan_as_category=True):
     del bb, bb_agg
     gc.collect()
 
-    # Bureau and bureau_balance numeric features
+    """融資と融資のバランスの数値に関する処理"""
     num_aggregations = {
         'DAYS_CREDIT': ['min', 'max', 'mean', 'var'],
         'DAYS_CREDIT_ENDDATE': ['min', 'max', 'mean'],
@@ -109,30 +111,28 @@ def bureau_and_balance(num_rows=None, nan_as_category=True):
         'MONTHS_BALANCE_MAX': ['max'],
         'MONTHS_BALANCE_SIZE': ['mean', 'sum']
     }
-    # Bureau and bureau_balance categorical features
+    """融資と融資のバランスの質的変数に関する処理"""
     cat_aggregations = {}
     for cat in bureau_cat:
         cat_aggregations[cat] = ['mean']
     for cat in bb_cat:
         cat_aggregations[cat + "_MEAN"] = ['mean']
 
-    bureau_agg = bureau.groupby('SK_ID_CURR').agg(
-        {**num_aggregations, **cat_aggregations})
-    bureau_agg.columns = pd.Index(
-        ['BURO_' + e[0] + "_" + e[1].upper() for e in bureau_agg.columns.tolist()])
-    # Bureau: Active credits - using only numerical aggregations
+    bureau_agg = bureau.groupby('SK_ID_CURR').agg({**num_aggregations, **cat_aggregations})
+    bureau_agg.columns = pd.Index(['BURO_' + e[0] + "_" + e[1].upper() for e in bureau_agg.columns.tolist()])
+
+    """ Activeの融資 """
     active = bureau[bureau['CREDIT_ACTIVE_Active'] == 1]
     active_agg = active.groupby('SK_ID_CURR').agg(num_aggregations)
-    active_agg.columns = pd.Index(
-        ['ACTIVE_' + e[0] + "_" + e[1].upper() for e in active_agg.columns.tolist()])
+    active_agg.columns = pd.Index(['ACTIVE_' + e[0] + "_" + e[1].upper() for e in active_agg.columns.tolist()])
     bureau_agg = bureau_agg.join(active_agg, how='left', on='SK_ID_CURR')
     del active, active_agg
     gc.collect()
-    # Bureau: Closed credits - using only numerical aggregations
+
+    """ Closedの融資 """
     closed = bureau[bureau['CREDIT_ACTIVE_Closed'] == 1]
     closed_agg = closed.groupby('SK_ID_CURR').agg(num_aggregations)
-    closed_agg.columns = pd.Index(
-        ['CLOSED_' + e[0] + "_" + e[1].upper() for e in closed_agg.columns.tolist()])
+    closed_agg.columns = pd.Index(['CLOSED_' + e[0] + "_" + e[1].upper() for e in closed_agg.columns.tolist()])
     bureau_agg = bureau_agg.join(closed_agg, how='left', on='SK_ID_CURR')
     del closed, closed_agg, bureau
     gc.collect()

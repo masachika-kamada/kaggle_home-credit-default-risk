@@ -11,20 +11,20 @@ dir_ref = "./csv-data"
 
 def main(debug=False):
     num_rows = 10000 if debug else None
-    # df = application_train_test(num_rows)
+    df = application_train_test(num_rows)
 
     with timer("Process bureau and bureau_balance"):
         bureau = bureau_and_balance(num_rows)
-        # print("Bureau df shape:", bureau.shape)
-        # df = df.join(bureau, how='left', on='SK_ID_CURR')
-        # del bureau
+        print("Bureau df shape:", bureau.shape)
+        df = df.join(bureau, how='left', on='SK_ID_CURR')
+        del bureau
+        gc.collect()
+    with timer("Process previous_applications"):
+        prev = previous_applications(num_rows)
+        # print("Previous applications df shape:", prev.shape)
+        # df = df.join(prev, how='left', on='SK_ID_CURR')
+        # del prev
         # gc.collect()
-    # with timer("Process previous_applications"):
-    #     prev = previous_applications(num_rows)
-    #     print("Previous applications df shape:", prev.shape)
-    #     df = df.join(prev, how='left', on='SK_ID_CURR')
-    #     del prev
-    #     gc.collect()
     # with timer("Process POS-CASH balance"):
     #     pos = pos_cash(num_rows)
     #     print("Pos-cash balance df shape:", pos.shape)
