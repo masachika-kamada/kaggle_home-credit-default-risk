@@ -139,10 +139,9 @@ def bureau_and_balance(num_rows=None, nan_as_category=True):
     return bureau_agg
 
 
-# Preprocess previous_applications.csv
 def previous_applications(num_rows=None, nan_as_category=True):
     prev = pd.read_csv(dir_ref + '/previous_application.csv', nrows=num_rows)
-    prev, cat_cols = one_hot_encoder(prev, nan_as_category=True)
+    prev, cat_cols = one_hot_encoder(prev, nan_as_category)
     # Days 365.243 values -> nan
     prev['DAYS_FIRST_DRAWING'].replace(365243, np.nan, inplace=True)
     prev['DAYS_FIRST_DUE'].replace(365243, np.nan, inplace=True)
@@ -169,30 +168,26 @@ def previous_applications(num_rows=None, nan_as_category=True):
     for cat in cat_cols:
         cat_aggregations[cat] = ['mean']
 
-    prev_agg = prev.groupby('SK_ID_CURR').agg(
-        {**num_aggregations, **cat_aggregations})
-    prev_agg.columns = pd.Index(
-        ['PREV_' + e[0] + "_" + e[1].upper() for e in prev_agg.columns.tolist()])
+    prev_agg = prev.groupby('SK_ID_CURR').agg({**num_aggregations, **cat_aggregations})
+    prev_agg.columns = pd.Index(['PREV_' + e[0] + "_" + e[1].upper() for e in prev_agg.columns.tolist()])
     # Previous Applications: Approved Applications - only numerical features
     approved = prev[prev['NAME_CONTRACT_STATUS_Approved'] == 1]
     approved_agg = approved.groupby('SK_ID_CURR').agg(num_aggregations)
-    approved_agg.columns = pd.Index(
-        ['APPROVED_' + e[0] + "_" + e[1].upper() for e in approved_agg.columns.tolist()])
+    approved_agg.columns = pd.Index(['APPROVED_' + e[0] + "_" + e[1].upper() for e in approved_agg.columns.tolist()])
     prev_agg = prev_agg.join(approved_agg, how='left', on='SK_ID_CURR')
     # Previous Applications: Refused Applications - only numerical features
     refused = prev[prev['NAME_CONTRACT_STATUS_Refused'] == 1]
     refused_agg = refused.groupby('SK_ID_CURR').agg(num_aggregations)
-    refused_agg.columns = pd.Index(
-        ['REFUSED_' + e[0] + "_" + e[1].upper() for e in refused_agg.columns.tolist()])
+    refused_agg.columns = pd.Index(['REFUSED_' + e[0] + "_" + e[1].upper() for e in refused_agg.columns.tolist()])
     prev_agg = prev_agg.join(refused_agg, how='left', on='SK_ID_CURR')
     del refused, refused_agg, approved, approved_agg, prev
     gc.collect()
     return prev_agg
 
-# Preprocess POS_CASH_balance.csv
+
 def pos_cash(num_rows=None, nan_as_category=True):
     pos = pd.read_csv(dir_ref + '/POS_CASH_balance.csv', nrows=num_rows)
-    pos, cat_cols = one_hot_encoder(pos, nan_as_category=True)
+    pos, cat_cols = one_hot_encoder(pos, nan_as_category)
     # Features
     aggregations = {
         'MONTHS_BALANCE': ['max', 'mean', 'size'],
@@ -211,10 +206,10 @@ def pos_cash(num_rows=None, nan_as_category=True):
     gc.collect()
     return pos_agg
 
-# Preprocess installments_payments.csv
+
 def installments_payments(num_rows=None, nan_as_category=True):
     ins = pd.read_csv(dir_ref + '/installments_payments.csv', nrows=num_rows)
-    ins, cat_cols = one_hot_encoder(ins, nan_as_category=True)
+    ins, cat_cols = one_hot_encoder(ins, nan_as_category)
     # Percentage and difference paid in each installment (amount paid and
     # installment value)
     ins['PAYMENT_PERC'] = ins['AMT_PAYMENT'] / ins['AMT_INSTALMENT']
@@ -246,15 +241,14 @@ def installments_payments(num_rows=None, nan_as_category=True):
     gc.collect()
     return ins_agg
 
-# Preprocess credit_card_balance.csv
+
 def credit_card_balance(num_rows=None, nan_as_category=True):
     cc = pd.read_csv(dir_ref + '/credit_card_balance.csv', nrows=num_rows)
-    cc, cat_cols = one_hot_encoder(cc, nan_as_category=True)
+    cc, cat_cols = one_hot_encoder(cc, nan_as_category)
     # General aggregations
     cc.drop(['SK_ID_PREV'], axis=1, inplace=True)
     cc_agg = cc.groupby('SK_ID_CURR').agg(['min', 'max', 'mean', 'sum', 'var'])
-    cc_agg.columns = pd.Index(['CC_' + e[0] + "_" + e[1].upper()
-                              for e in cc_agg.columns.tolist()])
+    cc_agg.columns = pd.Index(['CC_' + e[0] + "_" + e[1].upper() for e in cc_agg.columns.tolist()])
     # Count credit card lines
     cc_agg['CC_COUNT'] = cc.groupby('SK_ID_CURR').size()
     del cc

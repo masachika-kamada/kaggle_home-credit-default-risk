@@ -70,7 +70,7 @@ def kfold_lightgbm(df, num_folds, submission_file_name, stratified=False, debug=
         oof_preds[valid_idx] = clf.predict_proba(
             valid_x, num_iteration=clf.best_iteration_)[:, 1]
         sub_preds += clf.predict_proba(test_df[feats],
-                                       num_iteration=clf.best_iteration_)[:,1] / folds.n_splits
+                                       num_iteration=clf.best_iteration_)[:, 1] / folds.n_splits
 
         fold_importance_df = pd.DataFrame()
         fold_importance_df["feature"] = feats
@@ -87,7 +87,6 @@ def kfold_lightgbm(df, num_folds, submission_file_name, stratified=False, debug=
     if not debug:
         test_df['TARGET'] = sub_preds
         test_df[['SK_ID_CURR', 'TARGET']].to_csv(submission_file_name, index=False)
-    display_importances(feature_importance_df)
     return feature_importance_df
 
 
@@ -95,15 +94,9 @@ def kfold_lightgbm(df, num_folds, submission_file_name, stratified=False, debug=
 def display_importances(feature_importance_df_, save_name="dst.png"):
     cols = feature_importance_df_[["feature", "importance"]].groupby(
         "feature").mean().sort_values(by="importance", ascending=False)[:40].index
-    best_features = feature_importance_df_.loc[feature_importance_df_.feature.isin(
-        cols)]
+    best_features = feature_importance_df_.loc[feature_importance_df_.feature.isin(cols)]
     plt.figure(figsize=(8, 10))
-    sns.barplot(
-        x="importance",
-        y="feature",
-        data=best_features.sort_values(
-            by="importance",
-            ascending=False))
+    sns.barplot(x="importance", y="feature", data=best_features.sort_values(by="importance", ascending=False))
     plt.title('LightGBM Features (avg over folds)')
     plt.tight_layout()
     plt.savefig(save_name)
