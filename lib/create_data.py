@@ -25,18 +25,27 @@ def application_train_test(num_rows=None, nan_as_category=False):
 
     """2値の質的特徴を変換"""
     for bin_feature in ['CODE_GENDER', 'FLAG_OWN_CAR', 'FLAG_OWN_REALTY']:
+        # pd.factorizeは質的変数を数値に変換してくれる
+        # CODE_GENDER: M/F, FLAG_OWN_CAR: Y/N, FLAG_REALITY: Y/Nなので
+        # uniquesには変換後の数値が変換前に何だったかを表す質的変数が入っている
         df[bin_feature], uniques = pd.factorize(df[bin_feature])
-    # Categorical features with One-Hot encode
+    """3値以上の質的変数をダミー変数化"""
     df, cat_cols = one_hot_encoder(df, nan_as_category)
 
-    # NaN values for DAYS_EMPLOYED: 365.243 -> nan
+    """DAYS_EMPLOYEDで365.243はNaNを示す"""
     df['DAYS_EMPLOYED'].replace(365243, np.nan, inplace=True)
-    # Some simple new features (percentages)
+
+    """新たな特徴量の生成"""
     df['DAYS_EMPLOYED_PERC'] = df['DAYS_EMPLOYED'] / df['DAYS_BIRTH']
     df['INCOME_CREDIT_PERC'] = df['AMT_INCOME_TOTAL'] / df['AMT_CREDIT']
     df['INCOME_PER_PERSON'] = df['AMT_INCOME_TOTAL'] / df['CNT_FAM_MEMBERS']
     df['ANNUITY_INCOME_PERC'] = df['AMT_ANNUITY'] / df['AMT_INCOME_TOTAL']
     df['PAYMENT_RATE'] = df['AMT_ANNUITY'] / df['AMT_CREDIT']
+
+    """メモリの解放"""
+    # delは名前空間から変数を削除するが必ずしもメモリから変数をクリアするわけではない
+    # delステートメントを使用して変数を削除した後、
+    # gc.collect()メソッドを使用して変数をメモリからクリアできる
     del test_df
     gc.collect()
     return df
