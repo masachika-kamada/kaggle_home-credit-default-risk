@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from lib.utils import one_hot_encoder
 import gc
+from lib.utils import display_categorical_features
 
 
 dir_ref = "./csv-data"
@@ -53,10 +54,15 @@ def application_train_test(num_rows=None, nan_as_category=False):
 
 def bureau_and_balance(num_rows=None, nan_as_category=True):
     """bureau.csvとbureau_balance.csvを加工"""
+    # bureau : SK_ID_CURRで決定される顧客が、過去に行った融資情報をSK_ID_BUREAUとして含む
+    # 各ユーザはいくつかのSK_ID_BUREAUを持つ
+    # 過去融資情報が無い顧客も存在しているため、bureau内のSK_ID_CURRの一意の数は、application_train内のそれよりも少ない
 
     """まずデータを読み込む"""
     bureau = pd.read_csv(dir_ref + '/bureau.csv', nrows=num_rows)
     bb = pd.read_csv(dir_ref + '/bureau_balance.csv', nrows=num_rows)
+    display_categorical_features(bureau)
+    display_categorical_features(bb)
     bb, bb_cat = one_hot_encoder(bb, nan_as_category)
     bureau, bureau_cat = one_hot_encoder(bureau, nan_as_category)
 
@@ -64,10 +70,24 @@ def bureau_and_balance(num_rows=None, nan_as_category=True):
     bb_aggregations = {'MONTHS_BALANCE': ['min', 'max', 'size']}
     for col in bb_cat:
         bb_aggregations[col] = ['mean']
+    # groupbyは、同じ値を持つデータをまとめて、それぞれの塊に対して共通の操作を行いたい時に使う
+    # 今回は融資が1ユーザーに対して複数存在するため、SK_ID_BUREAUでデータをまとめる
+    # aggは、引数に適用したい処理を表す文字列や呼び出し可能オブジェクトのリストを指定
+    # 各列に各処理が適用された結果が返される
+    # MONTHS_BALANCEのみ['min', 'max', 'size']を求め、それ以外は['mean']のみ求める
     bb_agg = bb.groupby('SK_ID_BUREAU').agg(bb_aggregations)
-    bb_agg.columns = pd.Index([e[0] + "_" + e[1].upper()
-                              for e in bb_agg.columns.tolist()])
+    # bb_agg.columns.tolist()は[('MONTHS_BALANCE', 'min'), ('MONTHS_BALANCE', 'max'),…]
+    # e[0] + "_" + e[1].upper()でMONTHS_BALANCE_MINのような変換になる
+    # 変換後の文字列を系列名としてセット
+    bb_agg.columns = pd.Index([e[0] + "_" + e[1].upper() for e in bb_agg.columns.tolist()])
+    # joinでDataFrameを結合
+    # 関数を指定するDataFrameが基準となり、引数のDataFrameを結合
+    # onでキーとする列を指定でき、値が存在しなかった場合にはNaNで埋められる
     bureau = bureau.join(bb_agg, how='left', on='SK_ID_BUREAU')
+    # dropで列を指定して削除可能
+    # 引数inplaceをTrueにすると元のDataFrameが変更され、戻り値なし
+    # SK_ID_BUREAUではなくSK_ID_CURRが全体で共通する識別子なのでSK_ID_BUREAUは不要
+    # 意味がないのに数値として残っていると困るので削除
     bureau.drop(['SK_ID_BUREAU'], axis=1, inplace=True)
     del bb, bb_agg
     gc.collect()

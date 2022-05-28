@@ -15,7 +15,7 @@ from sklearn.model_selection import KFold, StratifiedKFold
 
 
 def kfold_lightgbm(df, num_folds, submission_file_name, stratified=False, debug=False):
-
+    """特殊文字が混ざっているとエラーが出るので"""
     df = df.rename(columns=lambda x: re.sub('[^A-Za-z0-9_]+', '', x))
     # Divide in training/validation and test data
     train_df = df[df['TARGET'].notnull()]
