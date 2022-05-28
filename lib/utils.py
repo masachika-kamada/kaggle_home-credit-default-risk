@@ -3,6 +3,16 @@ import time
 import pandas as pd
 
 
+def display_categorical_features(df, thresh=10):
+    """データを最初にここに通して質的変数の確認を行う"""
+    unique_count = df.select_dtypes('object').apply(pd.Series.nunique, axis=0)
+    for idx in unique_count.index:
+        if unique_count[idx] <= thresh:
+            print(f"{idx}\t{unique_count[idx]}\t{df[idx].unique()}")
+        else:
+            print(f"{idx}\t{unique_count[idx]}")
+
+
 @contextmanager
 def timer(title):
     t0 = time.time()  # __enter__()に対応
