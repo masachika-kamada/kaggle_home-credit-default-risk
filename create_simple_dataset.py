@@ -50,8 +50,8 @@ def main():
     train_df['TARGET'] = train_df['TARGET'].astype(int)
     print(train_df['TARGET'].dtypes)
 
-    train_df.to_csv("simple-dataset-train.csv")
-    test_df.to_csv("simple-dataset-test.csv")
+    train_df.to_csv("simple-dataset-train.csv", index=False)
+    test_df.to_csv("simple-dataset-test.csv", index=False)
 
 
 if __name__ == "__main__":

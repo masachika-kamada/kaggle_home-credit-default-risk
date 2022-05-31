@@ -3,6 +3,7 @@ from lib.utils import timer
 from lib.create_data import application_train_test, bureau_and_balance, previous_applications
 from lib.create_data import pos_cash, installments_payments, credit_card_balance
 from lib.models import kfold_lightgbm, display_importances
+from lib.save_data import df2csv
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
@@ -43,6 +44,8 @@ def main(debug=False):
         df = df.join(cc, how='left', on='SK_ID_CURR')
         del cc
         gc.collect()
+
+    df2csv(df)
 
     with timer("Run LightGBM with kfold"):
         feature_importance = kfold_lightgbm(df, num_folds=10, submission_file_name=submission_file_name, stratified=False, debug=debug)
