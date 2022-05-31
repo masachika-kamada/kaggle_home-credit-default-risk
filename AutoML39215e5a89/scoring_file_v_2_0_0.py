@@ -50,13 +50,15 @@ type_convert(data)
 
 test_data = {"data": data}
 
-res = run(test_data)
+# 今回はdefaultの確率を求めたいのでpredict_probaにする
+# predictだと0か1でしか結果を返してくれない
+res = run(test_data, GlobalParameters={"method": "predict_proba"})
 print(len(res["Results"]))
 print(len(SK_ID_CURR))
 
 dst = [["SK_ID_CURR", "TARGET"]]
 for idx, pred in zip(SK_ID_CURR, res["Results"]):
-    dst.append([idx, pred])
+    dst.append([idx, pred[1]])
 print(dst)
 
 with open("submit.csv", "w") as f:
