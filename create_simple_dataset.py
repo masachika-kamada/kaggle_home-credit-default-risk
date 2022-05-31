@@ -46,6 +46,10 @@ def main():
     train_df = df[df['TARGET'].notnull()]
     test_df = df[df['TARGET'].isnull()]
 
+    print(train_df['TARGET'].dtypes)
+    train_df['TARGET'] = train_df['TARGET'].astype(int)
+    print(train_df['TARGET'].dtypes)
+
     train_df.to_csv("simple-dataset-train.csv")
     test_df.to_csv("simple-dataset-test.csv")
 
