@@ -45,6 +45,9 @@ def main(debug=False):
         del cc
         gc.collect()
 
+    for col_name in df.columns:
+        if df[col_name].max() > 10 ** 6:
+            df[col_name] = df[col_name] / df[col_name].max() * (10 ** 6)
     df2csv(df)
 
     with timer("Run LightGBM with kfold"):
