@@ -12,10 +12,10 @@
   * LightGBM with Simple Featuresオリジナルの特徴量を使用
     * private: 0.79023 / public: 0.79136
   * 新たな特徴量を使用しない制約あり
-    * private:  / public: 
+    * private: 0.78445 / public: 0.78173
 
 * Azure自動ML
   * LightGBM with Simple Featuresオリジナルの特徴量を使用
-    * private:  / public: 
+    * private: 0.72382 / public: 0.72553
   * 新たな特徴量を使用しない制約あり
     * private: 0.72756 / public: 0.73050
