@@ -2,6 +2,7 @@ import gc
 import re
 from lib.connect_dataset import application_train_test, bureau_and_balance, previous_applications
 from lib.connect_dataset import pos_cash, installments_payments, credit_card_balance
+from lib.models import kfold_lightgbm, display_importances
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
@@ -41,18 +42,22 @@ def main():
     del cc
     gc.collect()
 
-    df = df.rename(columns=lambda x: re.sub('[^A-Za-z0-9_]+', '', x))
+    # df = df.rename(columns=lambda x: re.sub('[^A-Za-z0-9_]+', '', x))
 
-    train_df = df[df['TARGET'].notnull()]
-    test_df = df[df['TARGET'].isnull()]
+    # train_df = df[df['TARGET'].notnull()]
+    # test_df = df[df['TARGET'].isnull()]
 
-    print(train_df['TARGET'].dtypes)
-    train_df['TARGET'] = train_df['TARGET'].astype(int)
-    print(train_df['TARGET'].dtypes)
+    # print(train_df['TARGET'].dtypes)
+    # train_df['TARGET'] = train_df['TARGET'].astype(int)
+    # print(train_df['TARGET'].dtypes)
 
-    train_df.to_csv("simple-dataset-train.csv", index=False)
-    test_df.to_csv("simple-dataset-test.csv", index=False)
+    # train_df.to_csv("simple-dataset-train.csv", index=False)
+    # test_df.to_csv("simple-dataset-test.csv", index=False)
+
+    feature_importance = kfold_lightgbm(df, num_folds=10, submission_file_name=submission_file_name, stratified=False)
+    display_importances(feature_importance)
 
 
 if __name__ == "__main__":
+    submission_file_name = "./submission/rule-based-features.csv"
     main()
